@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/supabase';
+import { Ionicons } from '@expo/vector-icons';
 
 type Message = Database['public']['Tables']['messages']['Row'];
 
@@ -51,8 +52,12 @@ export default function ChatroomScreen() {
         )}
         keyExtractor={(item) => item.id}
         style={styles.chatContainer}
+        inverted
       />
-      <View style={styles.inputContainer}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.inputContainer}
+      >
         <TextInput
           style={styles.input}
           placeholder="Type a message"
@@ -60,10 +65,13 @@ export default function ChatroomScreen() {
           value={message}
           onChangeText={setMessage}
         />
-        <TouchableOpacity style={styles.sendButton} onPress={handleSendMessage}>
-          <Text style={styles.sendButtonText}>Send</Text>
+        <TouchableOpacity style={styles.emojiButton}>
+          <Ionicons name="happy-outline" size={24} color="#FFF" />
         </TouchableOpacity>
-      </View>
+        <TouchableOpacity style={styles.sendButton} onPress={handleSendMessage}>
+          <Ionicons name="send" size={24} color="#000" />
+        </TouchableOpacity>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -99,6 +107,7 @@ const styles = StyleSheet.create({
     padding: 10,
     borderTopWidth: 1,
     borderTopColor: '#333',
+    backgroundColor: '#1A1A1A',
   },
   input: {
     flex: 1,
@@ -107,14 +116,13 @@ const styles = StyleSheet.create({
     padding: 10,
     color: '#FFF',
   },
-  sendButton: {
+  emojiButton: {
     marginLeft: 10,
+    marginRight: 10,
+  },
+  sendButton: {
     backgroundColor: '#00FF9D',
     borderRadius: 10,
     padding: 10,
-  },
-  sendButtonText: {
-    color: '#000',
-    fontWeight: 'bold',
   },
 });

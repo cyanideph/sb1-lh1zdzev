@@ -1,38 +1,56 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Image, ActivityIndicator, RefreshControl } from 'react-native';
+import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/supabase';
-import { MessageSquare } from 'lucide-react-native';
+import { MessageSquare, Users } from 'lucide-react-native';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { ErrorView } from '@/components/ErrorView';
+import { ChatroomCard } from '@/components/ChatroomCard';
 
 type ChatRoom = Database['public']['Tables']['chatrooms']['Row'];
 
 export default function ChatScreen() {
+  const router = useRouter();
+  const isOnline = useOnlineStatus();
   const [chatrooms, setChatrooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetchChatrooms();
-    subscribeToChatrooms();
+    const subscription = subscribeToChatrooms();
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const fetchChatrooms = async () => {
     try {
-      const { data, error } = await supabase
+      setError(null);
+      const { data, error: fetchError } = await supabase
         .from('chatrooms')
-        .select('*')
+        .select(`
+          *,
+          profiles:created_by(username, avatar_url),
+          messages:messages(count)
+        `)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (fetchError) throw fetchError;
       if (data) setChatrooms(data);
-    } catch (error) {
-      console.error('Error fetching chatrooms:', error);
+    } catch (err) {
+      setError('Failed to load chatrooms. Please try again.');
+      console.error('Error fetching chatrooms:', err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   const subscribeToChatrooms = () => {
-    const subscription = supabase
+    return supabase
       .channel('chatrooms')
       .on('postgres_changes', {
         event: '*',
@@ -42,34 +60,38 @@ export default function ChatScreen() {
         fetchChatrooms();
       })
       .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-    };
   };
 
-  const renderChatRoom = ({ item }: { item: ChatRoom }) => (
-    <TouchableOpacity style={styles.chatroomCard}>
-      <View style={styles.chatroomInfo}>
-        <Text style={styles.chatroomName}>{item.name}</Text>
-        <Text style={styles.chatroomLocation}>
-          {item.province}, {item.region}
-        </Text>
-        {item.description && (
-          <Text style={styles.chatroomDescription} numberOfLines={2}>
-            {item.description}
-          </Text>
-        )}
-      </View>
-      <MessageSquare color="#00FF9D" size={24} />
-    </TouchableOpacity>
-  );
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchChatrooms();
+  };
 
-  if (loading) {
+  const handleChatroomPress = (chatroom: ChatRoom) => {
+    router.push(`/room/${chatroom.id}`);
+  };
+
+  if (!isOnline) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.loadingText}>Loading chatrooms...</Text>
-      </View>
+      <ErrorView
+        icon={<Users size={48} color="#FF4444" />}
+        title="No Internet Connection"
+        message="Please check your connection and try again."
+        actionLabel="Retry"
+        onAction={fetchChatrooms}
+      />
+    );
+  }
+
+  if (error) {
+    return (
+      <ErrorView
+        icon={<MessageSquare size={48} color="#FF4444" />}
+        title="Error Loading Chatrooms"
+        message={error}
+        actionLabel="Try Again"
+        onAction={fetchChatrooms}
+      />
     );
   }
 
@@ -77,15 +99,43 @@ export default function ChatScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Chatrooms</Text>
+        <Text style={styles.subtitle}>Join conversations across the Philippines</Text>
       </View>
       
-      <FlatList
-        data={chatrooms}
-        renderItem={renderChatRoom}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContainer}
-        showsVerticalScrollIndicator={false}
-      />
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#00FF9D" />
+          <Text style={styles.loadingText}>Loading chatrooms...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={chatrooms}
+          renderItem={({ item }) => (
+            <ChatroomCard
+              chatroom={item}
+              onPress={() => handleChatroomPress(item)}
+            />
+          )}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContainer}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor="#00FF9D"
+              colors={['#00FF9D']}
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <MessageSquare size={48} color="#666" />
+              <Text style={styles.emptyText}>No chatrooms available</Text>
+              <Text style={styles.emptySubtext}>Be the first to create one!</Text>
+            </View>
+          }
+        />
+      )}
     </View>
   );
 }
@@ -106,44 +156,41 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontFamily: 'Inter-Bold',
   },
+  subtitle: {
+    fontSize: 16,
+    color: '#888',
+    marginTop: 4,
+    fontFamily: 'Inter-Regular',
+  },
   listContainer: {
     padding: 16,
   },
-  chatroomCard: {
-    backgroundColor: '#2A2A2A',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  chatroomInfo: {
+  loadingContainer: {
     flex: 1,
-    marginRight: 16,
-  },
-  chatroomName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFF',
-    marginBottom: 4,
-    fontFamily: 'Inter-Bold',
-  },
-  chatroomLocation: {
-    fontSize: 14,
-    color: '#888',
-    marginBottom: 4,
-    fontFamily: 'Inter-Regular',
-  },
-  chatroomDescription: {
-    fontSize: 14,
-    color: '#CCC',
-    fontFamily: 'Inter-Regular',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   loadingText: {
     color: '#888',
-    textAlign: 'center',
-    marginTop: 20,
+    marginTop: 12,
+    fontFamily: 'Inter-Regular',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 48,
+  },
+  emptyText: {
+    color: '#888',
+    fontSize: 18,
+    marginTop: 16,
+    fontFamily: 'Inter-SemiBold',
+  },
+  emptySubtext: {
+    color: '#666',
+    fontSize: 14,
+    marginTop: 8,
     fontFamily: 'Inter-Regular',
   },
 });

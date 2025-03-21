@@ -20,31 +20,19 @@ export default function RegisterScreen() {
         password,
       });
 
-      console.log('SignUp Response:', { user, signUpError });
-
       if (signUpError) throw signUpError;
 
       if (user) {
-        // Wait for the session to be established
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-        if (sessionError) throw sessionError;
-        if (!session) throw new Error('User session not found');
-
         const { error: profileError } = await supabase.from('profiles').insert({
           id: user.id,
           username,
         });
 
-        console.log('Profile Insert Response:', { profileError });
-
         if (profileError) throw profileError;
-
-        // Redirect to the main app screen after successful registration
-        router.replace('/(tabs)');
       }
+
+      router.replace('/(tabs)');
     } catch (err) {
-      console.error('Registration Error:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
